@@ -77,42 +77,51 @@ def quadrant_bars(df, col, title):
     return f
 
 
-def top_artists_scatter(tr, max_n=20, default_n=5):
-    """Rated songs from my N most-played artists, one colour per artist; a slider sets N."""
-    rank = tr.groupby("artist").plays.sum().sort_values(ascending=False).head(max_n).index
-    colours = px.colors.qualitative.Dark24
-    biggest = np.sqrt(tr[tr.artist.isin(rank)].plays.max())
+def top_tracks_scatter(tr, max_n=200, step=10, default_n=30, n_colours=12):
+    """My N most-played rated songs, coloured by artist; a slider sets N.
+
+    Artists get a colour in the order they first appear in the ranking, so the colours stay
+    put as the slider moves. Past the first `n_colours` artists, songs are grey.
+    """
+    ranked = tr.sort_values("plays", ascending=False).head(max_n).reset_index(drop=True)
+    first_seen = list(dict.fromkeys(ranked.artist))
+    palette = dict(zip(first_seen[:n_colours], px.colors.qualitative.Dark24))
+    other = "other artists"
+    biggest = np.sqrt(ranked.plays.max())
     # Many songs share exact ratings; a small jitter keeps them from hiding each other.
     # Hover shows the real values.
     rng = np.random.default_rng(0)
+    shown_in_legend = set()
     f = go.Figure()
-    for i, artist in enumerate(rank):
-        g = tr[tr.artist == artist]
+    for i, r in ranked.iterrows():
+        group = r.artist if r.artist in palette else other
+        # One legend entry per artist, on its most-played song, which is always the first
+        # of that artist's songs to become visible.
+        legend = group not in shown_in_legend
+        shown_in_legend.add(group)
         f.add_trace(go.Scatter(
-            x=g.track_valence + rng.normal(0, 0.02, len(g)),
-            y=g.track_arousal + rng.normal(0, 0.02, len(g)),
-            mode="markers", name=artist, visible=i < default_n,
-            marker=dict(color=colours[i % len(colours)], opacity=0.8,
-                        size=6 + 16 * np.sqrt(g.plays.clip(lower=1)) / biggest,
+            x=[r.track_valence + rng.normal(0, 0.02)], y=[r.track_arousal + rng.normal(0, 0.02)],
+            mode="markers", name=group, legendgroup=group, showlegend=legend,
+            visible=i < default_n,
+            marker=dict(color=palette.get(r.artist, "#c4c4c4"), opacity=0.8,
+                        size=6 + 16 * np.sqrt(max(r.plays, 1)) / biggest,
                         line=dict(width=0.5, color="white")),
-            customdata=np.stack([g.name + " by " + g.artist, g.plays,
-                                 g.track_valence, g.track_arousal], axis=1),
-            hovertemplate="<b>%{customdata[0]}</b><br>%{customdata[1]} plays<br>"
-                          "valence %{customdata[2]:.2f}, arousal %{customdata[3]:.2f}<extra></extra>"))
+            hovertemplate=(f"<b>{r['name']} by {r.artist}</b><br>{int(r.plays)} plays<br>"
+                           f"valence {r.track_valence:.2f}, arousal {r.track_arousal:.2f}"
+                           "<extra></extra>")))
 
     def title(n):
-        songs = int(tr.artist.isin(rank[:n]).sum())
-        return f"Songs by my top {n} artist{'s' if n > 1 else ''} ({songs} rated songs; size = plays)"
+        return f"My top {n} most-played rated songs, coloured by artist (size = plays)"
 
     steps = [dict(method="update", label=str(n),
-                  args=[{"visible": [i < n for i in range(len(rank))]}, {"title": title(n)}])
-             for n in range(1, len(rank) + 1)]
+                  args=[{"visible": [i < n for i in range(len(ranked))]}, {"title": title(n)}])
+             for n in range(step, len(ranked) + 1, step)]
     f.update_layout(
         title=title(default_n), height=720, xaxis_title=AXES["x"], yaxis_title=AXES["y"],
-        sliders=[dict(active=default_n - 1, steps=steps, pad=dict(t=50),
-                      currentvalue=dict(prefix="Top artists: "))])
+        legend=dict(groupclick="togglegroup"),
+        sliders=[dict(active=default_n // step - 1, steps=steps, pad=dict(t=50),
+                      currentvalue=dict(prefix="Top songs: "))])
     return quadrant_axes(f)
-
 
 
 def top_artist_mood_slider(a, max_n=50, default_n=15):
@@ -229,8 +238,8 @@ def build():
                     xaxis_title=AXES["x"], yaxis_title=AXES["y"], height=640)
     figs.append(("Track mood", quadrant_axes(f)))
 
-    # --- track scatter: rated songs from my top N artists, N picked with a slider
-    figs.append(("", top_artists_scatter(tr)))
+    # --- track scatter: my top N most-played rated songs, N picked with a slider
+    figs.append(("", top_tracks_scatter(tr)))
     figs.append(("", quadrant_bars(tr, "track_quadrant",
                                    "Track mood quadrants: owned vs played (rated songs only)")))
 
