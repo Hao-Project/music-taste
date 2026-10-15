@@ -6,10 +6,12 @@ Last.fm appears only in the robustness check at the end.
 Usage: python mood_report.py
 """
 import json
+import re
 
 import numpy as np
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from load import ROOT
@@ -62,6 +64,59 @@ def quadrant_bars(df, col, title):
                category_orders={"quadrant": QUADRANTS})
     f.update_layout(height=380)
     return f
+
+
+def top_artists_scatter(tr, max_n=20, default_n=5):
+    """Rated songs from my N most-played artists, one colour per artist; a slider sets N."""
+    rank = tr.groupby("artist").plays.sum().sort_values(ascending=False).head(max_n).index
+    colours = px.colors.qualitative.Dark24
+    biggest = np.sqrt(tr[tr.artist.isin(rank)].plays.max())
+    # Many songs share exact ratings; a small jitter keeps them from hiding each other.
+    # Hover shows the real values.
+    rng = np.random.default_rng(0)
+    f = go.Figure()
+    for i, artist in enumerate(rank):
+        g = tr[tr.artist == artist]
+        f.add_trace(go.Scatter(
+            x=g.track_valence + rng.normal(0, 0.02, len(g)),
+            y=g.track_arousal + rng.normal(0, 0.02, len(g)),
+            mode="markers", name=artist, visible=i < default_n,
+            marker=dict(color=colours[i % len(colours)], opacity=0.8,
+                        size=6 + 16 * np.sqrt(g.plays.clip(lower=1)) / biggest,
+                        line=dict(width=0.5, color="white")),
+            customdata=np.stack([g.name + " by " + g.artist, g.plays,
+                                 g.track_valence, g.track_arousal], axis=1),
+            hovertemplate="<b>%{customdata[0]}</b><br>%{customdata[1]} plays<br>"
+                          "valence %{customdata[2]:.2f}, arousal %{customdata[3]:.2f}<extra></extra>"))
+
+    def title(n):
+        songs = int(tr.artist.isin(rank[:n]).sum())
+        return f"Songs by my top {n} artist{'s' if n > 1 else ''} ({songs} rated songs; size = plays)"
+
+    steps = [dict(method="update", label=str(n),
+                  args=[{"visible": [i < n for i in range(len(rank))]}, {"title": title(n)}])
+             for n in range(1, len(rank) + 1)]
+    f.update_layout(
+        title=title(default_n), height=720, xaxis_title=AXES["x"], yaxis_title=AXES["y"],
+        sliders=[dict(active=default_n - 1, steps=steps, pad=dict(t=50),
+                      currentvalue=dict(prefix="Top artists: "))])
+    return quadrant_axes(f)
+
+
+def write_standalone(page, path):
+    """Same report with plotly.js inlined, so it opens with no network (e.g. inside WeChat,
+    where the plotly CDN can be slow or blocked). Also adds a phone viewport and lets wide
+    tables scroll sideways instead of overflowing the screen."""
+    from plotly.offline import get_plotlyjs
+    tag = re.search(r'<script[^>]*src="https://cdn\.plot\.ly/[^"]+"[^>]*></script>', page)
+    if not tag:
+        raise RuntimeError("plotly CDN script tag not found; can't inline plotly.js")
+    page = page.replace(tag.group(0), f"<script>{get_plotlyjs()}</script>", 1)
+    page = page.replace(
+        "<meta charset='utf-8'>",
+        "<meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'>"
+        "<style>table{display:block;overflow-x:auto;max-width:100%}</style>", 1)
+    path.write_text(page)
 
 
 def corr_ci(x, y, method="pearson", n_boot=2000, seed=0):
@@ -135,17 +190,20 @@ def build():
                            ("LLM artist mood", "artist_valence"),
                            ("last.fm track tags (check only)", "lfm_valence")]])
 
-    # --- track map
+    # --- track heatmap: where my listening sits, over every rated song
     tr = m.dropna(subset=["track_valence"]).copy()
-    tr["size"] = np.sqrt(tr.plays.clip(lower=1))
-    f = px.scatter(tr, x="track_valence", y="track_arousal", size="size", size_max=18,
-                   opacity=0.55, color_discrete_sequence=["#e07b39"],
-                   hover_data={"name": True, "artist": True, "plays": True,
-                               "track_valence": ":.2f", "track_arousal": ":.2f", "size": False},
-                   title=f"Track mood: {len(tr):,} songs the LLM knows (size = plays)",
-                   labels={"track_valence": AXES["x"], "track_arousal": AXES["y"]})
-    f.update_layout(height=680)
+    # Ratings come in 0.05-0.1 steps, so bins are centred on multiples of 0.1
+    bins = dict(start=-1.05, end=1.05, size=0.1)
+    f = go.Figure(go.Histogram2d(
+        x=tr.track_valence, y=tr.track_arousal, z=tr.plays, histfunc="sum",
+        xbins=bins, ybins=bins, colorscale="YlOrRd", colorbar=dict(title="plays"),
+        hovertemplate="valence %{x}<br>arousal %{y}<br>%{z} plays<extra></extra>"))
+    f.update_layout(title=f"Track mood heatmap: plays across all {len(tr):,} rated songs (0.1 × 0.1 cells)",
+                    xaxis_title=AXES["x"], yaxis_title=AXES["y"], height=640)
     figs.append(("Track mood", quadrant_axes(f)))
+
+    # --- track scatter: rated songs from my top N artists, N picked with a slider
+    figs.append(("", top_artists_scatter(tr)))
     figs.append(("", quadrant_bars(tr, "track_quadrant",
                                    "Track mood quadrants: owned vs played (rated songs only)")))
 
@@ -238,7 +296,9 @@ def build():
         "agreement here likely overstates how well the LLM does on the niche songs in the "
         "library.</div>")
     html.append("<p>Full table: output/moods.csv</p></body></html>")
-    (OUT / "mood.html").write_text("\n".join(html))
+    page = "\n".join(html)
+    (OUT / "mood.html").write_text(page)
+    write_standalone(page, OUT / "mood_standalone.html")
 
     print(cov.to_string(index=False))
     print(f"\nrobustness: {len(both)} songs\n{stats.to_string(index=False)}")
