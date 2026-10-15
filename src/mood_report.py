@@ -34,6 +34,18 @@ def weighted(df, col):
     return (df[col] * w).sum() / w.sum()
 
 
+# Charts are for reading, not exploring: on a phone it's too easy to drag or pinch an axis by
+# accident. Hover/tap, the artist slider and legend clicks still work.
+PLOT_CONFIG = {"displayModeBar": False, "scrollZoom": False, "doubleClick": False}
+
+
+def lock(fig):
+    fig.update_xaxes(fixedrange=True)
+    fig.update_yaxes(fixedrange=True)
+    fig.update_layout(dragmode=False)
+    return fig
+
+
 def zero_lines(f, **where):
     """Dashed lines at valence 0 and arousal 0, each running from -1 to 1."""
     style = dict(color="#444", dash="dash", width=2)
@@ -272,7 +284,8 @@ def build():
         fig.update_layout(template="simple_white", margin=dict(l=10, r=10, t=60, b=10))
         if heading:
             html.append(f"<h2>{heading}</h2>")
-        html.append(fig.to_html(full_html=False, include_plotlyjs="cdn" if i == 0 else False))
+        html.append(lock(fig).to_html(full_html=False, include_plotlyjs="cdn" if i == 0 else False,
+                                      config=PLOT_CONFIG))
     html.append("<h2>Extremes (track mood)</h2>" + "".join(extremes))
 
     html.append("<h2>Robustness check: LLM vs Last.fm</h2>")
@@ -285,8 +298,8 @@ def build():
     html.append(stats.to_html(index=False))
     html.append(f"<p>Same quadrant as Last.fm: LLM track rating {agree:.0%}, "
                 f"LLM artist rating {agree_artist:.0%}.</p>")
-    html.append(rob_fig.update_layout(template="simple_white").to_html(full_html=False,
-                                                                        include_plotlyjs=False))
+    html.append(lock(rob_fig.update_layout(template="simple_white")).to_html(
+        full_html=False, include_plotlyjs=False, config=PLOT_CONFIG))
     html.append("<h3>Largest disagreements</h3>" + worst.to_html(index=False))
     html.append(
         "<div class='note'><b>How to read this.</b> Agreement with Last.fm is not the same as "
