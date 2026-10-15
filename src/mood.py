@@ -1,9 +1,9 @@
-"""Place every track on a valence (sad <-> happy) x arousal (calm <-> energetic) map.
+"""Place tracks and artists on a valence (sad <-> happy) x arousal (calm <-> energetic) map.
 
-Sources, in order of preference:
-  last.fm / track   the track's own Last.fm mood tags
-  last.fm / artist  the artist's Last.fm mood tags, when the track has none
-  LLM generated     a guess from cache/mood_llm.csv, when Last.fm has no mood tags at all
+Three separate ratings, never mixed:
+  track mood   LLM rating of each song it knows well; unknown songs are left missing
+  artist mood  LLM rating of each artist's general mood
+  last.fm      the song's own Last.fm mood tags, used only to check the LLM track ratings
 
 Mood tags are turned into numbers with the Warriner et al. (2013) word norms, rescaled to
 -1..1. Words whose musical sense differs from everyday English ("dark", "lazy") use the hand
@@ -113,60 +113,50 @@ def quadrant(v, a):
 
 
 def load_llm():
-    """cache/mood_llm.json: {artist: {"artist": [v, a], "songs": {title: [v, a]}}}
+    """cache/mood_llm.json: {"tracks": {artist: {title: [v, a]}}, "artists": {artist: [v, a]}}
 
-    "songs" holds ratings for songs the LLM actually knows. Other songs by that artist get
-    the "artist" guess, labelled basis="artist" so it's clear it isn't song-specific.
+    "tracks" lists only songs the LLM knows well; unknown songs are simply absent.
+    "artists" is the LLM's view of each artist's general mood, kept as a separate rating.
     """
     path = CACHE / "mood_llm.json"
-    return json.loads(path.read_text()) if path.exists() else {}
-
-
-def llm_guess(llm, artist, title):
-    entry = llm.get(artist)
-    if not entry:
-        return None
-    if title in entry.get("songs", {}):
-        return (*entry["songs"][title], "song")
-    if entry.get("artist"):
-        return (*entry["artist"], "artist")
-    return None
+    return json.loads(path.read_text()) if path.exists() else {"tracks": {}, "artists": {}}
 
 
 def build_moods():
+    """One row per track with three independent ratings, never mixed:
+
+      track_valence / track_arousal    LLM rating of this song (NaN if the LLM doesn't know it)
+      artist_valence / artist_arousal  LLM rating of the artist's general mood
+      lfm_valence / lfm_arousal        Last.fm mood tags on this song, for the robustness check
+    """
     tracks = load_tracks()
     lex = mood_lexicon()
     track_tags = json.loads((CACHE / "track_tags_lastfm.json").read_text())
-    artist_tags = json.loads((CACHE / "tags_lastfm.json").read_text())
     llm = load_llm()
 
     rows = []
     for t in tracks.itertuples():
-        row = {"id": t.id, "source": None, "level": None, "valence": np.nan, "arousal": np.nan,
-               "mood_words": ""}
+        song = llm["tracks"].get(t.artist, {}).get(t.name)
+        artist = llm["artists"].get(t.artist)
         hit = score_tags(track_tags.get(t.id, {}), lex)
-        level = "track"
-        if hit is None:
-            hit = score_tags(artist_tags.get(t.artist, {}), lex)
-            level = "artist"
-        if hit is not None:
-            row.update(source="last.fm", level=level, valence=hit[0], arousal=hit[1],
-                       mood_words=hit[3])
-        elif (g := llm_guess(llm, t.artist, t.name)) is not None:
-            row.update(source="LLM generated", level=g[2], valence=g[0], arousal=g[1])
-        rows.append(row)
+        rows.append({
+            "id": t.id,
+            "track_valence": song[0] if song else np.nan,
+            "track_arousal": song[1] if song else np.nan,
+            "artist_valence": artist[0] if artist else np.nan,
+            "artist_arousal": artist[1] if artist else np.nan,
+            "lfm_valence": hit[0] if hit else np.nan,
+            "lfm_arousal": hit[1] if hit else np.nan,
+            "lfm_words": hit[3] if hit else "",
+        })
 
     m = tracks.merge(pd.DataFrame(rows), on="id")
-    m["quadrant"] = [quadrant(v, a) if pd.notna(v) else None for v, a in zip(m.valence, m.arousal)]
+    for kind in ("track", "artist", "lfm"):
+        m[f"{kind}_quadrant"] = [quadrant(v, a) if pd.notna(v) else None
+                                 for v, a in zip(m[f"{kind}_valence"], m[f"{kind}_arousal"])]
     return m
-
-
-def gaps():
-    """Tracks Last.fm can't place, for the LLM to fill."""
-    m = build_moods()
-    return m[m.source.isna()]
 
 
 if __name__ == "__main__":
     m = build_moods()
-    print(m.groupby(["source", "level"], dropna=False).size())
+    print(m[["track_valence", "artist_valence", "lfm_valence"]].notna().sum())

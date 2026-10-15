@@ -38,9 +38,14 @@ Tags are cached, so re-running only fetches new artists. The key can also live i
 ../.venv/bin/python mood_report.py          # writes output/mood.html and moods.csv
 ```
 
-Each track is placed on a valence (sad to happy) by arousal (calm to energetic) map. Last.fm mood tags such as "melancholic" or "upbeat" come first, from the track itself and then from the artist. They are scored with the word norms from Warriner, Kuperman & Brysbaert (2013), "Norms of valence, arousal, and dominance for 13,915 English lemmas", *Behavior Research Methods* 45. A few words whose musical sense differs from everyday English use hand ratings instead.
+Tracks and artists are placed on a valence (sad to happy) by arousal (calm to energetic) map, with two separate ratings that are never mixed:
 
-Tracks Last.fm can't place use LLM guesses from `cache/mood_llm.json`, in the form `{artist: {"artist": [v, a], "songs": {title: [v, a]}}}`. The report labels every point as `last.fm` or `LLM generated`, and as song-level or artist-level.
+- **Track mood:** an LLM rating of each song it knows well. Songs it doesn't know are left missing, not filled in from the artist.
+- **Artist mood:** an LLM rating of each artist's general sound, one dot per artist.
+
+Both come from `cache/mood_llm.json`, in the form `{"tracks": {artist: {title: [v, a]}}, "artists": {artist: [v, a]}}`. The maps use these LLM ratings only, so the scale is consistent.
+
+Last.fm mood tags are used only for a robustness check, where the report compares them with the LLM track ratings on songs that have both. Tags such as "melancholic" or "upbeat" are scored with the word norms from Warriner, Kuperman & Brysbaert (2013), "Norms of valence, arousal, and dominance for 13,915 English lemmas", *Behavior Research Methods* 45. A few words whose musical sense differs from everyday English use hand ratings instead.
 
 The Warriner ratings are licensed CC BY-NC-ND, so they are downloaded into `cache/` at runtime and not included in this repo.
 
