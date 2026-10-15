@@ -29,10 +29,26 @@ export LASTFM_API_KEY=...
 ../.venv/bin/python report.py lastfm
 ```
 
-Tags are cached, so re-running only fetches new artists.
+Tags are cached, so re-running only fetches new artists. The key can also live in a `.env` file (`LASTFM_API_KEY=...`), which is gitignored.
+
+### Mood map
+
+```
+../.venv/bin/python track_tags.py           # Last.fm tags per track, ~30-40 minutes
+../.venv/bin/python mood_report.py          # writes output/mood.html and moods.csv
+```
+
+Each track is placed on a valence (sad to happy) by arousal (calm to energetic) map. Last.fm mood tags such as "melancholic" or "upbeat" come first, from the track itself and then from the artist. They are scored with the word norms from Warriner, Kuperman & Brysbaert (2013), "Norms of valence, arousal, and dominance for 13,915 English lemmas", *Behavior Research Methods* 45. A few words whose musical sense differs from everyday English use hand ratings instead.
+
+Tracks Last.fm can't place use LLM guesses from `cache/mood_llm.json`, in the form `{artist: {"artist": [v, a], "songs": {title: [v, a]}}}`. The report labels every point as `last.fm` or `LLM generated`, and as song-level or artist-level.
+
+The Warriner ratings are licensed CC BY-NC-ND, so they are downloaded into `cache/` at runtime and not included in this repo.
 
 ## What is in `src/`
 
 - `load.py` parses the XML into a track table and adds a taste score (0-100): plays per year in the library, reduced by skips, boosted by Loved.
 - `tags.py` fetches crowd-sourced genre tags per artist (Last.fm or MusicBrainz).
 - `report.py` builds the HTML report plus `tag_profile.csv`, `artists.csv`, `loved.csv` and `tracks.csv` in `output/`.
+- `track_tags.py` fetches Last.fm tags for each track, which is where mood words live.
+- `mood.py` turns mood tags (or LLM guesses) into valence and arousal for each track.
+- `mood_report.py` builds the mood map report.
