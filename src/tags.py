@@ -14,8 +14,9 @@ from pathlib import Path
 
 import requests
 
-from load import ROOT, load_tracks
+from load import ROOT, load_env, load_tracks
 
+load_env()
 CACHE_DIR = ROOT / "cache"
 UA = {"User-Agent": "music-taste/0.1 (personal project)"}
 

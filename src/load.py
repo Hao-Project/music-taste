@@ -8,6 +8,18 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parent.parent
 LIBRARY_XML = ROOT / "data" / "Library.xml"
 
+
+def load_env(path=ROOT / ".env"):
+    """Read KEY=value lines from .env into os.environ, without overriding what's already set."""
+    import os
+    if not path.exists():
+        return
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            k, v = line.split("=", 1)
+            os.environ.setdefault(k.strip(), v.strip().strip("'\""))
+
 KEEP = {
     "Persistent ID": "id",
     "Name": "name",
