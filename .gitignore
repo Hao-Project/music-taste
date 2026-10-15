@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+
+# Personal listening data and everything derived from it
+data/
+output/
+cache/
+.env
