@@ -115,6 +115,37 @@ def top_artists_scatter(tr, max_n=20, default_n=5):
 
 
 
+def top_artist_mood_slider(a, max_n=50, default_n=15):
+    """My N most-played artists at their LLM artist mood, labelled; a slider sets N.
+
+    `a` is one row per artist, sorted by plays (most played first)."""
+    a = a.head(max_n).reset_index(drop=True)
+    biggest = np.sqrt(a.plays.max())
+    f = go.Figure()
+    for i, r in a.iterrows():
+        f.add_trace(go.Scatter(
+            x=[r.valence], y=[r.arousal], mode="markers+text", text=[r.artist],
+            textposition="top center", textfont=dict(size=11), name=r.artist,
+            visible=i < default_n, showlegend=False,
+            marker=dict(color="#7a5bb5", opacity=0.65,
+                        size=8 + 30 * np.sqrt(r.plays) / biggest,
+                        line=dict(width=0.5, color="white")),
+            hovertemplate=(f"<b>{r.artist}</b><br>{int(r.plays):,} plays, {int(r.tracks)} tracks<br>"
+                           f"valence {r.valence:.2f}, arousal {r.arousal:.2f}<extra></extra>")))
+
+    def title(n):
+        return f"My top {n} artist{'s' if n > 1 else ''} by plays, at their artist mood (size = plays)"
+
+    steps = [dict(method="update", label=str(n),
+                  args=[{"visible": [i < n for i in range(len(a))]}, {"title": title(n)}])
+             for n in range(1, len(a) + 1)]
+    f.update_layout(
+        title=title(default_n), height=720, xaxis_title=AXES["x"], yaxis_title=AXES["y"],
+        sliders=[dict(active=default_n - 1, steps=steps, pad=dict(t=50),
+                      currentvalue=dict(prefix="Top artists: "))])
+    return quadrant_axes(f)
+
+
 def corr_ci(x, y, method="pearson", n_boot=2000, seed=0):
     """Correlation with a 95% bootstrap interval; small samples need the interval."""
     x, y = np.asarray(x, float), np.asarray(y, float)
@@ -217,6 +248,7 @@ def build():
     f.update_traces(textposition="top center", textfont_size=10)
     f.update_layout(height=720)
     figs.append(("Artist mood", quadrant_axes(f)))
+    figs.append(("", top_artist_mood_slider(a)))
     figs.append(("", quadrant_bars(m.dropna(subset=["artist_quadrant"]), "artist_quadrant",
                                    "Artist mood quadrants: share of my tracks and plays by the artist's mood")))
 
