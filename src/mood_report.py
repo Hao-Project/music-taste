@@ -32,9 +32,16 @@ def weighted(df, col):
     return (df[col] * w).sum() / w.sum()
 
 
+def zero_lines(f, **where):
+    """Dashed lines at valence 0 and arousal 0, each running from -1 to 1."""
+    style = dict(color="#444", dash="dash", width=2)
+    f.add_shape(type="line", x0=-1, x1=1, y0=0, y1=0, line=style, **where)
+    f.add_shape(type="line", x0=0, x1=0, y0=-1, y1=1, line=style, **where)
+    return f
+
+
 def quadrant_axes(f):
-    f.add_hline(y=0, line_color="#bbb")
-    f.add_vline(x=0, line_color="#bbb")
+    zero_lines(f)
     f.update_xaxes(range=[-1.05, 1.05])
     f.update_yaxes(range=[-1.05, 1.05])
     for x, y, t in [(0.7, 0.97, "happy / energetic"), (0.7, -0.97, "calm / content"),
@@ -100,6 +107,7 @@ def robustness(m):
         f.add_trace(sc, row=1, col=i)
         f.add_shape(type="line", x0=-1, y0=-1, x1=1, y1=1, line=dict(color="#bbb", dash="dot"),
                     row=1, col=i)
+        zero_lines(f, row=1, col=i)
         f.update_xaxes(title_text="last.fm", range=[-1.05, 1.05], row=1, col=i)
         f.update_yaxes(title_text="LLM track rating", range=[-1.05, 1.05], row=1, col=i)
     f.update_layout(height=430, showlegend=False,
