@@ -6,7 +6,6 @@ Last.fm appears only in the robustness check at the end.
 Usage: python mood_report.py
 """
 import json
-import re
 
 import numpy as np
 import pandas as pd
@@ -114,21 +113,6 @@ def top_artists_scatter(tr, max_n=20, default_n=5):
                       currentvalue=dict(prefix="Top artists: "))])
     return quadrant_axes(f)
 
-
-def write_standalone(page, path):
-    """Same report with plotly.js inlined, so it opens with no network (e.g. inside WeChat,
-    where the plotly CDN can be slow or blocked). Also adds a phone viewport and lets wide
-    tables scroll sideways instead of overflowing the screen."""
-    from plotly.offline import get_plotlyjs
-    tag = re.search(r'<script[^>]*src="https://cdn\.plot\.ly/[^"]+"[^>]*></script>', page)
-    if not tag:
-        raise RuntimeError("plotly CDN script tag not found; can't inline plotly.js")
-    page = page.replace(tag.group(0), f"<script>{get_plotlyjs()}</script>", 1)
-    page = page.replace(
-        "<meta charset='utf-8'>",
-        "<meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'>"
-        "<style>table{display:block;overflow-x:auto;max-width:100%}</style>", 1)
-    path.write_text(page)
 
 
 def corr_ci(x, y, method="pearson", n_boot=2000, seed=0):
@@ -309,9 +293,7 @@ def build():
         "agreement here likely overstates how well the LLM does on the niche songs in the "
         "library.</div>")
     html.append("<p>Full table: output/moods.csv</p></body></html>")
-    page = "\n".join(html)
-    (OUT / "mood.html").write_text(page)
-    write_standalone(page, OUT / "mood_standalone.html")
+    (OUT / "mood.html").write_text("\n".join(html))
 
     print(cov.to_string(index=False))
     print(f"\nrobustness: {len(both)} songs\n{stats.to_string(index=False)}")
